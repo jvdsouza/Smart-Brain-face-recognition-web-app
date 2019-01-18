@@ -2,38 +2,25 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt-nodejs');
 const cors = require('cors');
+const knex = require('knex');
+
+const db = knex({
+  client: 'pg',
+  connection: {
+    host : '127.0.0.1',
+    port: "5434",
+    user : 'postgres',
+    password : 'jet153',
+    database : 'smart-brain'
+  }
+});
+
+
 
 const app = express();
 const port = 3000;
 //mock database to test routes with POST, PUT, and DELETE methods before
 //implementing a database
-const database = {
-  users: [
-    {
-      id: 123,
-      name: 'John',
-      password: 'cookies',
-      email: "john@gmail.com",
-      entries: 0,
-      joined: new Date()
-    },
-    {
-      id: 124,
-      name: 'Sally',
-      password: 'bananas',
-      email: "sally@gmail.com",
-      entries: 0,
-      joined: new Date()
-    }
-  ],
-  login: [
-    {
-      id: '987',
-      hash: '',
-      email: 'john@gmail.com'
-    }
-  ]
-}
 
 //import apps to express
 app.use(bodyParser.json());
@@ -46,63 +33,79 @@ app.get('/', (req, resp) => {
 
 //signin route
 app.post('/signin', (req, resp) => {
-  if (req.body.email === database.users[0].email &&
-      req.body.password === database.users[0].password) {
-    resp.json(database.users[0]);
-  } else {
-    resp.status(400).json('error logging in');
-  }
+  db.select('email', 'hash').from('login')
+    .where('email', '=', req.body.email)
+    .then(data => {
+      const isValid = bcrypt.compareSync(req.body.password, data[0].hash);
+      if (isValid) {
+        return db.select('*').from('users')
+          .where('email', '=', req.body.email)
+          .then(user => {
+            resp.json(user[0]);
+          })
+          .catch (err => resp.status(400).json('unable to get user'))
+      } else{
+          resp.status(400).json('wrong credentials');
+      }
+    })
+    .catch(err => resp.status(400).json('wrong credentials'))
 })
 
 //register route
 app.post('/register', (req, resp) => {
   const {email, name, password} = req.body;
-  // bcrypt.hash(password, null, null, function(err, hash) {
-  //     console.log(hash);
-  // });
-  database.users.push({
-    id: 125,
-    name,
-    email,
-    entries: 0,
-    joined: new Date()
+  const hash = bcrypt.hashSync(password);
+  db.transaction(trx => {
+    trx.insert({
+      hash,
+      email
+    })
+    .into('login')
+    .returning('email')
+    .then(loginEmail => {
+      return trx('users')
+        .returning('*')
+        .insert({
+          email: loginEmail[0],
+          name: name,
+          joined: new Date()
+        })
+        .then(user => {
+          resp.json(user[0]);
+        })
+    })
+    .then(trx.commit)
+    .catch(trx.rollback)
   })
-    resp.json(database.users[database.users.length-1]);
+
+      .catch(err => resp.status(400).json("unable to register"))
 })
 
 //profile route
 app.get('/profile/:id', (req, resp) => {
   const { id } = req.params;
-  const idVal = Number(id);
   let found = false;
 
-  database.users.forEach(user => {
-    if (user.id == idVal) {
-      found = true;
-      return resp.json(user);
+  db.select('*').from('users').where({id}).then(user => {
+    if (user.length) {
+      resp.json(user[0]);
+    } else {
+      resp.status(400).json('not found')
     }
-  })
-  if (!found) {
-    resp.status(400).json('user not found')
-  }
+  }).catch(err =>resp.status(400).json('not found'));
 })
 
 //update entries page through image submission
 app.put('/image', (req, resp) => {
   const { id } = req.body;
-  const idVal = Number(id);
-  let found = false;
 
-  database.users.forEach(user => {
-    if (user.id == idVal) {
-      found = true;
-      user.entries++
-      return resp.json(user.entries);
-    }
+  db('users').where('id', '=', id)
+  .increment('entries', 1)
+  .returning('entries')
+  .then(entries => {
+    resp.json(entries[0]);
   })
-  if (!found) {
-    resp.status(400).json('user not found')
-  }
+  .catch(err => res.status(400).json("unable to get entries"));
 })
 
 // bcrypt.hash("bacon", null, null, function(err, hash) {
