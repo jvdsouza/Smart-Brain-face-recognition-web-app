@@ -10,7 +10,7 @@ const profile = require('./controllers/profile');
 const image = require('./controllers/image');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT;
 //mock database to test routes with POST, PUT, and DELETE methods before
 //implementing a database
 
@@ -21,17 +21,14 @@ app.use(cors());
 const db = knex({
   client: 'pg',
   connection: {
-    host : '127.0.0.1',
-    port: "5434",
-    user : 'postgres',
-    password : 'jet153',
-    database : 'smart-brain'
+    connectionString : process.env.DATABASE_URL,
+    ssl: true
   }
 });
 
 //testing the root directory to check if everything is working
 app.get('/', (req, resp) => {
-  resp.send(database.users);
+  resp.send('it is working!');
 })
 
 //signin route
@@ -51,6 +48,6 @@ app.post('/imageurl', (req, resp) => {image.handleApiCall(req, resp)})
 
 
 //display port in console
-app.listen(port, () => {
+app.listen(port || 3000, () => {
   console.log(`200 app is running on port ${port}`)
 });
